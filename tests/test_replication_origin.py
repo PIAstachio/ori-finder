@@ -65,6 +65,45 @@ class TestMismatches(unittest.TestCase):
         self.assertEqual(ApproximatePatternCount("GAGG", "TTTAGAGCCTTCAGAGG", 2), 4)
 
 
+class TestFrequentWordsWithMismatches(unittest.TestCase):
+    def test_neighbors(self):
+        self.assertEqual(sorted(Neighbors("ACG", 1)),
+                         ["AAG", "ACA", "ACC", "ACG", "ACT", "AGG", "ATG", "CCG", "GCG", "TCG"])
+        self.assertEqual(Neighbors("ACG", 0), {"ACG"})
+
+    def test_frequent_words_with_mismatches(self):
+        text = "ACGTTGCATGTCGCATGATGCATGAGAGCT"
+        self.assertEqual(FrequentWordsWithMismatches(text, 4, 1), ["ATGC", "ATGT", "GATG"])
+        self.assertEqual(FrequentWordsWithMismatchesAndReverseComplements(text, 4, 1),
+                         ["ACAT", "ATGT"])
+
+    def test_scores_match_brute_force(self):
+        scores = FrequentWordsWithMismatchesScores(ecoli_window, 9, 1)
+        for kmer in ["TTATCCACA", "GGATCCTGG", "AAAAAAAAA", "ATGATCAAG"]:
+            expected = (ApproximatePatternCount(kmer, ecoli_window, 1)
+                        + ApproximatePatternCount(ReverseComplement(kmer), ecoli_window, 1))
+            self.assertEqual(scores.get(kmer, 0), expected)
+
+    def test_ecoli_dnaa_box(self):
+        # Textbook: no 9-mer appears 3+ times exactly (with reverse complement)...
+        exact = [k for k in FrequencyMap(ecoli_window, 9)
+                 if PatternCount(ecoli_window, k)
+                 + PatternCount(ecoli_window, ReverseComplement(k)) >= 3]
+        self.assertEqual(exact, [])
+        # ...but with 1 mismatch the real DnaA box is a most frequent 9-mer,
+        # alongside the five others the textbook lists.
+        best, tied, observed = dnaa_candidates(ecoli_window, 9, 1)
+        self.assertEqual(best, 4)
+        for kmer in ["TTATCCACA", "TGTGGATAA", "GGATCCTGG", "GATCCCAGC",
+                     "GTTATCCAC", "AGCTGGGAT", "CTGGGATCA"]:
+            self.assertIn(kmer, observed)
+
+    def test_vibrio_approximate_boxes(self):
+        hits = (ApproximatePatternCount("ATGATCAAG", ori, 1)
+                + ApproximatePatternCount("CTTGATCAT", ori, 1))
+        self.assertEqual(hits, 9)   # 8 sites; one overlapping site matches both
+
+
 class TestClumps(unittest.TestCase):
     def test_find_clumps(self):
         text = "CGGACTCGACAGATGTGAAGAACGACAATGTGAAGACTCGACACGACAGAGTGAAGAGAAGAGGAAACATTGTAA"

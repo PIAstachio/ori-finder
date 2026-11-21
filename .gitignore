@@ -3,4 +3,5 @@ __pycache__/
 .DS_Store
 # downloaded on first run
 Vibrio_cholerae.txt
+E_coli.txt
 skew_diagram.png

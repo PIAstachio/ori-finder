@@ -17,6 +17,16 @@ ori = ("ATCAATGATCAACGTAAGCTTCTAAGCATGATCAAGGTGCTCACACAGTTTATCCACAACCTGAGTGGATGA
        "TGATCATCGATCCGATTGAAGATCTTCAATTGTTAATTCTCTTGCCTCGACTCATAGCCATGATGAGCTCTTGATCATGT"
        "TTCCTTAACCCTCTATTTTTTACGGAAGAATGATCAAGCTGCTGCTCTTGATCATCGTTTC")
 
+# E. coli: the 500 bp window starting at the minimum skew (position 3,923,620).
+# The experimentally verified ori starts 37 nucleotides into this window.
+ecoli_window = ("AATGATGATGACGTCAAAAGGATCCGGATAAAACATGGTGATTGCCTCGCATAACGCGGTATGAAAATGGATTGAAGCCC"
+                "GGGCCGTGGATTCTACTCAACTTTGTCGGCTTGAGAAAGACCTGGGATCCTGGGTATTAAAAAGAAGATCTATTTATTTAG"
+                "AGATCTGTTCTATTGTGATCTCTTATTAGGATCGCACTGCCCTGTGGATAACAAGGATCCGGCTTTTAAGATCAACAACCT"
+                "GGAAAGGATCATTAACTGTGAATGATCGGTGATCCTGGACCGTATAAGCTGGGATCAGAATGAGGGGTTATACACAACTCA"
+                "AAAACTGAACAACAGTTGTTCTTTGGATAACTACCGGTTGATCCAAGCTTCCTGACAGAGTTATCCACAGTAGATCGCACG"
+                "ATCTGTATACTTATTTGAGTAAATTAACCCACGATCCCAGCCATTCTTCTGCCGGATCTTCCGGAATGTCGTGATCAAGAA"
+                "TGTTGATCTTCAGTG")
+
 
 # ---------------------------------------------------------------------------
 # Part 1: counting k-mers
@@ -207,6 +217,74 @@ def ApproximatePatternCount(Pattern, Text, d):
 
 
 # ---------------------------------------------------------------------------
+# Part 4b: most frequent k-mers WITH mismatches (and reverse complements)
+# ---------------------------------------------------------------------------
+# In E. coli, a 500 bp window starting at the minimum skew has NO 9-mer that
+# appears 3+ times exactly (even counting reverse complements). But DnaA also
+# binds slightly modified boxes, so we allow d mismatches. The most frequent
+# 9-mer with 1 mismatch then turns out to be the real E. coli DnaA box,
+# TTATCCACA (and its reverse complement TGTGGATAA).
+#
+# Important: the most frequent "approximate" k-mer does not have to appear
+# exactly in the text at all. So we can't only score k-mers we see -- we score
+# every NEIGHBOR (every k-mer within d mismatches) of every k-mer we see.
+
+# Neighbors() returns every string within Hamming distance d of Pattern.
+def Neighbors(Pattern, d):
+    if d == 0:
+        return {Pattern}
+    if len(Pattern) == 1:
+        return {"A", "C", "G", "T"}
+    neighborhood = set()
+    suffix_neighbors = Neighbors(Pattern[1:], d)
+    for text in suffix_neighbors:
+        if HammingDistance(Pattern[1:], text) < d:
+            for base in "ACGT":                 # still have a mismatch to spend
+                neighborhood.add(base + text)
+        else:
+            neighborhood.add(Pattern[0] + text)  # first base must stay the same
+    return neighborhood
+
+
+# FrequentWordsWithMismatches() returns the k-mer(s) that appear most often in
+# Text with at most d mismatches.
+def FrequentWordsWithMismatches(Text, k, d):
+    counts = {}
+    for i in range(len(Text) - k + 1):
+        for neighbor in Neighbors(Text[i:i+k], d):
+            counts[neighbor] = counts.get(neighbor, 0) + 1
+    if not counts:
+        return []
+    m = max(counts.values())
+    return sorted(kmer for kmer in counts if counts[kmer] == m)
+
+
+# Same idea, but each k-mer's score = its count + its reverse complement's
+# count, because DnaA boxes occur on both strands.
+def FrequentWordsWithMismatchesAndReverseComplements(Text, k, d):
+    counts = FrequentWordsWithMismatchesScores(Text, k, d)
+    if not counts:
+        return []
+    m = max(counts.values())
+    return sorted(kmer for kmer in counts if counts[kmer] == m)
+
+
+def FrequentWordsWithMismatchesScores(Text, k, d):
+    """Score for every candidate k-mer: Count_d(Pattern) + Count_d(ReverseComplement(Pattern))."""
+    counts = {}
+    for i in range(len(Text) - k + 1):
+        window = Text[i:i+k]
+        # window is within d of Pattern            -> counts toward Pattern
+        for neighbor in Neighbors(window, d):
+            counts[neighbor] = counts.get(neighbor, 0) + 1
+        # window is within d of ReverseComplement(Pattern), i.e. the reverse
+        # complement of window is within d of Pattern -> also counts
+        for neighbor in Neighbors(ReverseComplement(window), d):
+            counts[neighbor] = counts.get(neighbor, 0) + 1
+    return counts
+
+
+# ---------------------------------------------------------------------------
 # Part 5: clump finding
 # ---------------------------------------------------------------------------
 # A k-mer forms an (L, t)-clump if it appears at least t times inside some
@@ -294,6 +372,7 @@ def show_list(label, items, limit=50):
 # Public copies of the course datasets (from the textbook's website).
 VIBRIO_GENOME_URL = "https://bioinformaticsalgorithms.com/data/realdatasets/Replication/Vibrio_cholerae.txt"
 VIBRIO_ORI_URL = "https://bioinformaticsalgorithms.com/data/realdatasets/Replication/v_cholerae_oric.txt"
+ECOLI_GENOME_URL = "https://bioinformaticsalgorithms.com/data/realdatasets/Replication/E_coli.txt"
 
 
 def download_sequence(url):
@@ -313,11 +392,21 @@ def download_sequence(url):
 def load_sequence():
     print("\nChoose a sequence to work with:")
     print("  1) Vibrio cholerae ori (built-in, 540 bp)")
+    print("  w) E. coli ori window (built-in, 500 bp from the textbook)")
     print("  2) Vibrio cholerae ori (download from link)")
     print("  3) Vibrio cholerae full genome (download from link, ~1.1 million bp)")
-    print("  4) Paste a sequence")
-    print("  5) Load from a text or FASTA file")
-    choice = input("Choice [1]: ").strip() or "1"
+    print("  4) E. coli full genome (download from link, ~4.6 million bp)")
+    print("  5) Paste a sequence")
+    print("  6) Load from a text or FASTA file")
+    choice = input("Choice [1]: ").strip().lower() or "1"
+    if choice == "w":
+        return ecoli_window
+    if choice == "4":
+        seq = load_ecoli_genome()
+        if seq is None:
+            print("  Using the built-in ori instead.")
+            return ori
+        return seq
     if choice == "2":
         seq = download_sequence(VIBRIO_ORI_URL)
         if seq is None:
@@ -330,9 +419,9 @@ def load_sequence():
             print("  Using the built-in ori instead.")
             return ori
         return seq
-    if choice == "4":
-        return ask_dna("Paste sequence: ")
     if choice == "5":
+        return ask_dna("Paste sequence: ")
+    if choice == "6":
         path = ask_text("File path: ")
         try:
             with open(path) as f:
@@ -349,18 +438,26 @@ def load_sequence():
 
 def load_vibrio_genome():
     """Load the full V. cholerae genome. In the course this was read in
-    'behind the scenes'. Here we use Vibrio_cholerae.txt if it's next to this
-    script; otherwise we download it from the link and save a copy so the
-    next run is instant."""
+    'behind the scenes'."""
+    return load_dataset("Vibrio_cholerae.txt", VIBRIO_GENOME_URL)
+
+
+def load_ecoli_genome():
+    return load_dataset("E_coli.txt", ECOLI_GENOME_URL)
+
+
+def load_dataset(filename, url):
+    """Use `filename` if it's next to this script; otherwise download it from
+    `url` and save a copy so the next run is instant."""
     import os
     here = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(here, "Vibrio_cholerae.txt")
+    path = os.path.join(here, filename)
     if os.path.exists(path):
         with open(path) as f:
             return clean_sequence(f.read())
-    seq = download_sequence(VIBRIO_GENOME_URL)
+    seq = download_sequence(url)
     if seq is None:
-        path = input("  Enter the path to a local Vibrio_cholerae.txt (or press Enter to skip): ").strip()
+        path = input(f"  Enter the path to a local {filename} (or press Enter to skip): ").strip()
         if not path:
             return None
         try:
@@ -379,6 +476,22 @@ def load_vibrio_genome():
 
 
 def run_course_examples():
+    # E. coli: no DnaA box shows up exactly, but one does with 1 mismatch.
+    exact = [kmer for kmer in FrequencyMap(ecoli_window, 9)
+             if PatternCount(ecoli_window, kmer)
+             + PatternCount(ecoli_window, ReverseComplement(kmer)) >= 3]
+    print(f"  E. coli window: 9-mers appearing 3+ times exactly (with reverse complement): {exact or 'none'}")
+    best, tied, observed = dnaa_candidates(ecoli_window, 9, 1)
+    print(f"  With 1 mismatch, most frequent (score {best}) and present in the window:")
+    print(f"  {observed}")
+    print("  -> includes TTATCCACA / TGTGGATAA, the experimentally confirmed E. coli DnaA box\n")
+
+    # V. cholerae: approximate DnaA boxes in the ori.
+    hits = (ApproximatePatternCount("ATGATCAAG", ori, 1)
+            + ApproximatePatternCount("CTTGATCAT", ori, 1))
+    print(f"  V. cholerae ori: ATGATCAAG + CTTGATCAT with <= 1 mismatch = {hits} hits")
+    print("  (8 binding sites -- the site at position 247 matches both strands' patterns)\n")
+
     # Exercise 1: count "TGATCA" in the oriC of Vibrio cholerae.
     Text = ori
     Pattern = "TGATCA"
@@ -423,29 +536,60 @@ def plot_skew(genome):
         pass
 
 
+def dnaa_candidates(region, k, d):
+    """Most frequent k-mers (with d mismatches, counting reverse complements)
+    in a region. Returns (best score, every tied k-mer, the tied k-mers that
+    also appear exactly in the region)."""
+    scores = FrequentWordsWithMismatchesScores(region, k, d)
+    if not scores:
+        return 0, [], []
+    best = max(scores.values())
+    tied = sorted(kmer for kmer in scores if scores[kmer] == best)
+    present = set(FrequencyMap(region, k))
+    observed = [kmer for kmer in tied if kmer in present]
+    return best, tied, observed
+
+
 def find_dnaa_boxes(genome):
-    """Combined workflow: min skew -> window around it -> frequent 9-mers."""
+    """Combined workflow: min skew -> window near it -> frequent 9-mers."""
     k = ask_int("k-mer length [suggest 9]: ", 1, len(genome))
     d = ask_int("Max mismatches d [suggest 1]: ", 0, k)
     window = min(500, len(genome))
-    centre = MinimumSkew(genome)[0]
+    min_pos = MinimumSkew(genome)[0]
+    print(f"\n  Minimum skew is at position {min_pos:,}.")
+    print("  Where should the 500 bp window go?")
+    print("    s) start at the minimum skew (what the textbook does for E. coli)")
+    print("    c) centred on it")
+    print("    e) end at it")
+    print("    or type a position to start the window there")
+    where = input("  Choice [s]: ").strip().lower() or "s"
+    if where == "c":
+        start = min_pos - window // 2
+    elif where == "e":
+        start = min_pos - window
+    elif where.isdigit():
+        start = int(where)
+    else:
+        start = min_pos
     # Bacterial genomes are circular, so let the window wrap past the end.
-    start = (centre - window // 2) % len(genome)
+    start %= len(genome)
     region = (genome + genome)[start:start + window]
     end = (start + window) % len(genome)
-    print(f"\n  Minimum skew at position {centre}; searching {start}..{end} (wraps if needed)")
-    freq = FrequencyMap(region, k)
-    scored = []
-    for kmer in freq:
+    print(f"  Searching positions {start:,}..{end:,} (wraps around the end if needed)")
+
+    best, tied, observed = dnaa_candidates(region, k, d)
+    print(f"\n  Most frequent {k}-mers with <= {d} mismatches (+ reverse complements): "
+          f"score {best}, {len(tied)} tied")
+    print("  Of those, the ones that also appear exactly in the window:")
+    shown = set()
+    for kmer in observed:
         rc = ReverseComplement(kmer)
-        total = ApproximatePatternCount(kmer, region, d)
-        if rc != kmer:
-            total += ApproximatePatternCount(rc, region, d)
-        scored.append((total, kmer, rc))
-    scored.sort(reverse=True)
-    print(f"  Top candidate DnaA boxes (counts include reverse complement, <= {d} mismatches):")
-    for total, kmer, rc in scored[:10]:
-        print(f"    {kmer} / {rc}: {total}")
+        if rc in shown:
+            continue
+        shown.add(kmer)
+        print(f"    {kmer} / {rc}")
+    if len(tied) > len(observed):
+        show_list("All tied k-mers (including ones never seen exactly)", tied, limit=40)
 
 
 def clump_report(genome):
@@ -495,6 +639,7 @@ def menu():
         "11": "Approximate pattern count (with mismatches)",
         "12": "Find candidate DnaA boxes near ori (full workflow)",
         "13": "Find clumps (FindClumps) and candidate DnaA boxes",
+        "14": "Most frequent k-mers with mismatches (+ reverse complements)",
         "e":  "Run course examples (TGATCA count, CTTGATCAT positions)",
         "s":  "Switch sequence",
         "q":  "Quit",
@@ -554,6 +699,19 @@ def menu():
                 find_dnaa_boxes(genome)
             elif choice == "13":
                 clump_report(genome)
+            elif choice == "14":
+                if len(genome) > 5000:
+                    print("  This is meant for a short window (like an ori). Use option 12")
+                    print("  to search a 500 bp window of a full genome.")
+                    continue
+                k = ask_int("k: ", 1, len(genome))
+                d = ask_int("Max mismatches d: ", 0, k)
+                rc = input("Count reverse complements too? [Y/n]: ").strip().lower() != "n"
+                if rc:
+                    words = FrequentWordsWithMismatchesAndReverseComplements(genome, k, d)
+                else:
+                    words = FrequentWordsWithMismatches(genome, k, d)
+                show_list(f"Most frequent {k}-mers with <= {d} mismatches", words)
             elif choice == "e":
                 run_course_examples()
             elif choice == "s":
