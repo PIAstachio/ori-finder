@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.DS_Store
+# downloaded on first run
+Vibrio_cholerae.txt
+skew_diagram.png
