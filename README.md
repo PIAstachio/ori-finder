@@ -77,7 +77,12 @@ from replication_origin import FindClumps, SkewArray, ReverseComplement
 python3 -m unittest
 ```
 
-19 tests check each function against the course's sample datasets. They also reproduce the textbook's *E. coli* and *V. cholerae* DnaA box results, compare the neighborhood algorithm against brute force, and cover edge cases such as unequal-length Hamming inputs, lowercase DNA, and k longer than the text.
+37 tests (under 1 second, Python 3.7+) cover:
+
+- **Course datasets:** every function's sample answer, plus the textbook's *E. coli* and *V. cholerae* DnaA box results
+- **Brute-force checks:** randomized inputs compared against slow, obviously correct versions of `SymbolArray`, `Neighbors`, `FrequentWordsWithMismatches` (with and without reverse complements) and `FindClumps`
+- **Edge cases:** lowercase DNA (common in FASTA files), empty inputs, `N` bases, 2,000-base patterns, and invalid arguments (empty patterns, k < 1, d < 0), which raise `ValueError` instead of returning a misleading answer
+- **The interactive menu:** every option, mistyped input, missing/empty/binary files, Ctrl-D, and oversized mismatch searches, which warn with a time and memory estimate before running
 
 ## Data
 

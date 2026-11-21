@@ -29,11 +29,36 @@ ecoli_window = ("AATGATGATGACGTCAAAAGGATCCGGATAAAACATGGTGATTGCCTCGCATAACGCGGTATG
 
 
 # ---------------------------------------------------------------------------
+# Input checks
+# ---------------------------------------------------------------------------
+# DNA is often written in lowercase (many FASTA files are), so every function
+# converts its input to uppercase first. Without this, PatternCount("acgacg",
+# "ACG") would silently return 0. Arguments that make no sense (an empty
+# pattern, k < 1, d < 0) raise a ValueError instead of returning an answer.
+
+def _check_pattern(Pattern):
+    if len(Pattern) == 0:
+        raise ValueError("Pattern can't be empty.")
+
+
+def _check_k(k):
+    if k < 1:
+        raise ValueError("k must be at least 1.")
+
+
+def _check_d(d):
+    if d < 0:
+        raise ValueError("d (the number of mismatches) can't be negative.")
+
+
+# ---------------------------------------------------------------------------
 # Part 1: counting k-mers
 # ---------------------------------------------------------------------------
 
 # PatternCount() counts how many times Pattern appears in Text (overlaps included).
 def PatternCount(Text, Pattern):
+    _check_pattern(Pattern)
+    Text, Pattern = Text.upper(), Pattern.upper()
     count = 0
     for i in range(len(Text) - len(Pattern) + 1):
         if Text[i:i+len(Pattern)] == Pattern:
@@ -43,6 +68,8 @@ def PatternCount(Text, Pattern):
 
 # FrequencyMap() returns a dictionary of every k-mer in Text and how often it appears.
 def FrequencyMap(Text, k):
+    _check_k(k)
+    Text = Text.upper()
     freq = {}
     n = len(Text)
     for i in range(n - k + 1):
@@ -91,6 +118,8 @@ def Complement(Pattern):
 
 # PatternMatching() returns every starting position where Pattern appears in Genome.
 def PatternMatching(Pattern, Genome):
+    _check_pattern(Pattern)
+    Pattern, Genome = Pattern.upper(), Genome.upper()
     positions = []
     Pattern_length = len(Pattern)
     Genome_length = len(Genome)
@@ -122,8 +151,11 @@ def PatternMatching(Pattern, Genome):
 # len(Genome)//2 starting at position i. The genome is treated as circular
 # (bacterial chromosomes are circular), which is why it is "extended" by half.
 def SymbolArray(Genome, symbol):
+    Genome, symbol = Genome.upper(), symbol.upper()
     array = {}
     n = len(Genome)
+    if n == 0:
+        return array
     ExtendedGenome = Genome + Genome[0:n//2]
     array[0] = PatternCount(Genome[0:n//2], symbol)
     for i in range(1, n):
@@ -177,6 +209,7 @@ def MinimumSkew(Genome):
 def HammingDistance(p, q):
     if len(p) != len(q):
         raise ValueError("Hamming distance needs two strings of the same length.")
+    p, q = p.upper(), q.upper()
     distance = 0
     for i in range(len(p)):
         if p[i] != q[i]:
@@ -187,6 +220,9 @@ def HammingDistance(p, q):
 # ApproximatePatternMatching() returns every position where Pattern appears in
 # Text with at most d mismatches.
 def ApproximatePatternMatching(Text, Pattern, d):
+    _check_pattern(Pattern)
+    _check_d(d)
+    Text, Pattern = Text.upper(), Pattern.upper()
     positions = []
     pattern_length = len(Pattern)
     text_length = len(Text)
@@ -199,6 +235,9 @@ def ApproximatePatternMatching(Text, Pattern, d):
 # ApproximatePatternCount() counts how many times Pattern appears in Text with
 # at most d mismatches.
 def ApproximatePatternCount(Pattern, Text, d):
+    _check_pattern(Pattern)
+    _check_d(d)
+    Text, Pattern = Text.upper(), Pattern.upper()
     count = 0
     pattern_length = len(Pattern)
     text_length = len(Text)
@@ -230,25 +269,42 @@ def ApproximatePatternCount(Pattern, Text, d):
 # every NEIGHBOR (every k-mer within d mismatches) of every k-mer we see.
 
 # Neighbors() returns every string within Hamming distance d of Pattern.
+# The course version is recursive (neighbors of Pattern are built from the
+# neighbors of Pattern[1:]). That hits Python's recursion limit for patterns
+# longer than ~1000 bases and gets very slow for long patterns. This version
+# builds each neighbor directly: pick which i positions change (i = 1..d),
+# then pick a different base for each of those positions.
 def Neighbors(Pattern, d):
-    if d == 0:
-        return {Pattern}
-    if len(Pattern) == 1:
-        return {"A", "C", "G", "T"}
-    neighborhood = set()
-    suffix_neighbors = Neighbors(Pattern[1:], d)
-    for text in suffix_neighbors:
-        if HammingDistance(Pattern[1:], text) < d:
-            for base in "ACGT":                 # still have a mismatch to spend
-                neighborhood.add(base + text)
-        else:
-            neighborhood.add(Pattern[0] + text)  # first base must stay the same
+    from itertools import combinations, product
+    _check_d(d)
+    Pattern = Pattern.upper()
+    neighborhood = {Pattern}
+    for i in range(1, min(d, len(Pattern)) + 1):
+        for positions in combinations(range(len(Pattern)), i):
+            choices = [[b for b in "ACGT" if b != Pattern[p]] for p in positions]
+            for new_bases in product(*choices):
+                neighbor = list(Pattern)
+                for p, b in zip(positions, new_bases):
+                    neighbor[p] = b
+                neighborhood.add("".join(neighbor))
     return neighborhood
+
+
+def NeighborhoodSize(k, d):
+    """How many k-mers are within d mismatches of a k-mer (for time estimates)."""
+    total, ways = 0, 1                        # ways = C(k, i) * 3^i
+    for i in range(min(d, k) + 1):
+        total += ways
+        ways = ways * (k - i) * 3 // (i + 1)
+    return total
 
 
 # FrequentWordsWithMismatches() returns the k-mer(s) that appear most often in
 # Text with at most d mismatches.
 def FrequentWordsWithMismatches(Text, k, d):
+    _check_k(k)
+    _check_d(d)
+    Text = Text.upper()
     counts = {}
     for i in range(len(Text) - k + 1):
         for neighbor in Neighbors(Text[i:i+k], d):
@@ -271,6 +327,9 @@ def FrequentWordsWithMismatchesAndReverseComplements(Text, k, d):
 
 def FrequentWordsWithMismatchesScores(Text, k, d):
     """Score for every candidate k-mer: Count_d(Pattern) + Count_d(ReverseComplement(Pattern))."""
+    _check_k(k)
+    _check_d(d)
+    Text = Text.upper()
     counts = {}
     for i in range(len(Text) - k + 1):
         window = Text[i:i+k]
@@ -296,6 +355,10 @@ def FrequentWordsWithMismatchesScores(Text, k, d):
 # 1.1 million bp genome), it slides the window one base at a time: the k-mer
 # leaving the window loses 1 and the k-mer entering it gains 1.
 def FindClumps(Text, k, L, t):
+    _check_k(k)
+    if t < 1:
+        raise ValueError("t must be at least 1.")
+    Text = Text.upper()
     patterns = set()
     n = len(Text)
     if L > n or k > L:
@@ -348,6 +411,10 @@ def ask_dna(prompt):
 
 
 def ask_int(prompt, minimum=0, maximum=None):
+    if maximum is not None and minimum > maximum:
+        # No answer could be valid (e.g. k between 1 and 0 for an empty
+        # sequence) -- say so instead of asking forever.
+        raise ValueError(f"the sequence is too short for this (needs a value from {minimum}, max is {maximum}).")
     while True:
         try:
             value = int(input(prompt))
@@ -384,6 +451,9 @@ def download_sequence(url):
             seq = clean_sequence(response.read().decode())
     except Exception as e:
         print(f"  Download failed ({e}).")
+        return None
+    if not seq:
+        print("  The download had no sequence in it.")
         return None
     print(f"  Downloaded {len(seq):,} bp.")
     return seq
@@ -422,18 +492,30 @@ def load_sequence():
     if choice == "5":
         return ask_dna("Paste sequence: ")
     if choice == "6":
-        path = ask_text("File path: ")
-        try:
-            with open(path) as f:
-                seq = clean_sequence(f.read())
-        except OSError as e:
-            print(f"  Could not open file: {e}. Using the built-in sample instead.")
-            return ori
-        if not seq:
-            print("  File had no sequence. Using the built-in sample instead.")
+        seq = read_sequence_file(ask_text("File path: "))
+        if seq is None:
+            print("  Using the built-in sample instead.")
             return ori
         return seq
     return ori
+
+
+def read_sequence_file(path):
+    """Read a DNA sequence from a text or FASTA file. Returns None (after
+    explaining why) if the file can't be opened, isn't text, or is empty."""
+    try:
+        with open(path) as f:
+            seq = clean_sequence(f.read())
+    except UnicodeDecodeError:
+        print(f"  {path} doesn't look like a text file (is it an image or Word document?).")
+        return None
+    except OSError as e:
+        print(f"  Could not open file: {e}")
+        return None
+    if not seq:
+        print(f"  {path} has no sequence in it.")
+        return None
+    return seq
 
 
 def load_vibrio_genome():
@@ -453,19 +535,16 @@ def load_dataset(filename, url):
     here = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(here, filename)
     if os.path.exists(path):
-        with open(path) as f:
-            return clean_sequence(f.read())
+        seq = read_sequence_file(path)
+        if seq is not None:
+            return seq
+        print("  Downloading a fresh copy instead.")
     seq = download_sequence(url)
     if seq is None:
-        path = input(f"  Enter the path to a local {filename} (or press Enter to skip): ").strip()
-        if not path:
+        other = input(f"  Enter the path to a local {filename} (or press Enter to skip): ").strip()
+        if not other:
             return None
-        try:
-            with open(path) as f:
-                return clean_sequence(f.read())
-        except OSError as e:
-            print(f"  Could not open genome file: {e}")
-            return None
+        return read_sequence_file(other)
     try:
         with open(path, "w") as f:
             f.write(seq)
@@ -473,6 +552,38 @@ def load_dataset(filename, url):
     except OSError:
         pass
     return seq
+
+
+def estimate_mismatch_search(k, d, windows):
+    """Rough (seconds, megabytes) for a mismatch search over `windows` k-mers.
+    Measured: ~1 microsecond per neighbor plus ~10 ns per letter, and every
+    distinct neighbor is stored (about k + 100 bytes each)."""
+    per_kmer = NeighborhoodSize(k, d)
+    neighbors = per_kmer * 2 * max(windows, 0)        # x2: reverse complements
+    seconds = neighbors * (1e-6 + k * 1e-8)
+    distinct = min(neighbors, 4 ** min(k, 30))
+    megabytes = distinct * (k + 100) / 1e6
+    return seconds, megabytes
+
+
+def confirm_mismatch_search(k, d, windows):
+    """Mismatch searches grow very fast with k and d (k=9, d=3 is ~2,600
+    neighbors per k-mer; d=9 is 262,144). Warn before anything slow or
+    memory-hungry instead of appearing to hang."""
+    seconds, megabytes = estimate_mismatch_search(k, d, windows)
+    if seconds < 15 and megabytes < 1000:
+        return True
+    if seconds < 60:
+        time_text = f"about {seconds:.0f} seconds"
+    elif seconds < 3600:
+        time_text = f"about {seconds / 60:.0f} minute(s)"
+    else:
+        time_text = f"over {seconds / 3600:,.0f} hour(s)"
+    memory_text = f"{megabytes / 1000:,.1f} GB" if megabytes >= 1000 else f"{megabytes:,.0f} MB"
+    print(f"  Heads up: k={k}, d={d} means {NeighborhoodSize(k, d):,} neighbors per k-mer.")
+    print(f"  This search would take {time_text} and roughly {memory_text} of memory.")
+    print("  (DnaA boxes use k=9, d=1, which takes well under a second.)")
+    return input("  Run it anyway? [y/N]: ").strip().lower() == "y"
 
 
 def run_course_examples():
@@ -519,7 +630,10 @@ def plot_skew(genome):
         return
     minima = MinimumSkew(genome)
     plt.figure(figsize=(10, 4))
-    plt.plot(range(len(skew)), skew, linewidth=1)
+    # A screen can't show millions of points, so plot at most ~100,000
+    # (keeps full-genome plots fast and light on memory).
+    step = max(1, len(skew) // 100_000)
+    plt.plot(range(0, len(skew), step), skew[::step], linewidth=1)
     plt.scatter(minima, [skew[i] for i in minima], color="red", zorder=3,
                 label=f"minimum skew (predicted ori): {minima[:5]}")
     plt.xlabel("Position in genome")
@@ -552,9 +666,12 @@ def dnaa_candidates(region, k, d):
 
 def find_dnaa_boxes(genome):
     """Combined workflow: min skew -> window near it -> frequent 9-mers."""
-    k = ask_int("k-mer length [suggest 9]: ", 1, len(genome))
-    d = ask_int("Max mismatches d [suggest 1]: ", 0, k)
     window = min(500, len(genome))
+    k = ask_int("k-mer length [suggest 9]: ", 1, window)
+    d = ask_int("Max mismatches d [suggest 1]: ", 0, k)
+    if not confirm_mismatch_search(k, d, window - k + 1):
+        print("  Cancelled.")
+        return
     min_pos = MinimumSkew(genome)[0]
     print(f"\n  Minimum skew is at position {min_pos:,}.")
     print("  Where should the 500 bp window go?")
@@ -567,7 +684,7 @@ def find_dnaa_boxes(genome):
         start = min_pos - window // 2
     elif where == "e":
         start = min_pos - window
-    elif where.isdigit():
+    elif where.lstrip("-").isdigit():
         start = int(where)
     else:
         start = min_pos
@@ -645,7 +762,7 @@ def menu():
         "q":  "Quit",
     }
     while True:
-        print(f"\nCurrent sequence: {len(genome)} bp  ({genome[:30]}{'...' if len(genome) > 30 else ''})")
+        print(f"\nCurrent sequence: {len(genome):,} bp  ({genome[:30]}{'...' if len(genome) > 30 else ''})")
         for key, label in actions.items():
             print(f"  {key:>2}) {label}")
         choice = input("Choose an option: ").strip().lower()
@@ -707,6 +824,9 @@ def menu():
                 k = ask_int("k: ", 1, len(genome))
                 d = ask_int("Max mismatches d: ", 0, k)
                 rc = input("Count reverse complements too? [Y/n]: ").strip().lower() != "n"
+                if not confirm_mismatch_search(k, d, len(genome) - k + 1):
+                    print("  Cancelled.")
+                    continue
                 if rc:
                     words = FrequentWordsWithMismatchesAndReverseComplements(genome, k, d)
                 else:
@@ -723,6 +843,14 @@ def menu():
                 print("  Not a valid option.")
         except ValueError as e:
             print(f"  Error: {e}")
+        except KeyboardInterrupt:
+            # Ctrl-C during a long search goes back to the menu instead of quitting.
+            print("\n  Cancelled.")
+        except EOFError:
+            raise
+        except Exception as e:
+            # Anything unexpected: report it and keep the menu running.
+            print(f"  Something went wrong: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
